@@ -87,6 +87,8 @@ def dijkstra_step(routing_canvas):
                     sink_is_found = True
                     sink_cell = cand_cell
                     sink_cell.isRouted = True
+                    sink_cell.routingValue = active_cell.routingValue + 1  # Makes backtrace easier if sink has this
+                    print("Found sink")
                     break
                 cell_is_viable = not cand_cell.isObstruction and not cand_cell.isCandidate \
                     and not cand_cell.isWire and not cand_cell.isSource and not cand_cell.isSink
@@ -103,38 +105,67 @@ def dijkstra_step(routing_canvas):
                     text_y = (cell_rect_coords[1] + cell_rect_coords[3])/2
                     routing_canvas.create_text(text_x, text_y,
                                                text=str(cand_cell.routingValue), fill='white')
-        if sink_is_found:
-            # Connect sink to source
-            net_is_routed = False
-            search_cell = sink_cell
-            while not net_is_routed:
-                # Backtrace through shortest path from Dijkstra wavefront propagation
-                search_x = search_cell.x
-                search_y = search_cell.y
-                search_coords = [(search_x, search_y+1), (search_x, search_y-1),
-                                 (search_x+1, search_y), (search_x-1, search_y)]
-                for (route_x, route_y) in search_coords:
-                    if 0 <= route_x < array_width and 0 <= route_y < array_height:
-                        route_cell = routing_array[route_x][route_y]
-                        if route_cell.isSource:
-                            # Done
-                            net_is_routed = True
-                            break
-                        if route_cell.isCandidate and route_cell.routingValue == search_cell.routingValue-1:
-                            # Cell is a valid wire location
-                            route_cell.isCandidate = False
-                            route_cell.isWire = True
-                            route_cell.isRouted = True
-                            routing_canvas.itemconfigure(route_cell.id, fill='blue')
-                            # Continue backtrace from this cell
-                            search_cell = route_cell
+    if sink_is_found:
+        print("Connecting sink")
+        # Connect sink to source
+        net_is_routed = False
+        net_colour = NET_COLOURS[sink_cell.netGroup]  # Needed to colour wires
+        search_cell = sink_cell
+        while not net_is_routed:
+            print("Backtrace iteration")
+            # Backtrace through shortest path from Dijkstra wavefront propagation
+            search_x = search_cell.x
+            search_y = search_cell.y
+            print("Searching from: " + str(search_x), ", " + str(search_y))
+            search_coords = [(search_x, search_y+1), (search_x, search_y-1),
+                             (search_x+1, search_y), (search_x-1, search_y)]
+            for (route_x, route_y) in search_coords:
+                print("Checking: " + str(route_x), ", " + str(route_y))
+                if 0 <= route_x < array_width and 0 <= route_y < array_height:
+                    route_cell = routing_array[route_x][route_y]
+                    print("source: " + str(route_cell.isSource))
+                    print("candidate: " + str(route_cell.isCandidate))
+                    print("routingValue: " + str(route_cell.routingValue))
+                    if route_cell.isSource:
+                        # Done
+                        net_is_routed = True
+                        print("Routed a net")
+                        break
+                    if route_cell.isCandidate and route_cell.routingValue == search_cell.routingValue-1:
+                        print("Attempting to backtrace through: " + str(route_cell.x), ", " + str(route_cell.y))
+                        # Cell is a valid wire location
+                        route_cell.isCandidate = False
+                        route_cell.isWire = True
+                        route_cell.isRouted = True
+                        routing_canvas.itemconfigure(route_cell.id, fill=net_colour)
+                        # Continue backtrace from this cell
+                        search_cell = route_cell
+                        break
 
-            # Clear non-wire cells
+        # Clear non-wire cells
+        cleanup_candidates(routing_canvas)
 
-            # Clear/increment active variables
+        # Clear/increment active variables
+        active_net_num += 1
+        active_source_cell = None
+        wavefront = None
+
 
 
     print("Completed a step")
+
+
+def cleanup_candidates(routing_canvas):
+    global routing_array
+
+    for column in routing_array:
+        print(column)
+        for cell in column:
+            print(cell)
+            if cell.isCandidate:
+                cell.isCandidate = False
+                cell.routingValue = 0
+                routing_canvas.itemconfigure(cell.id, fill='white')
 
 
 def dijkstra():

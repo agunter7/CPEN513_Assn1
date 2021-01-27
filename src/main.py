@@ -68,6 +68,8 @@ def dijkstra_step(routing_canvas):
     active_wavefront = wavefront.copy()  # Avoid overwrite and loss of data
     wavefront.clear()  # Will have a new wavefront after Dijkstra step
 
+    sink_is_found = False
+    sink_cell = None
     for cell_coords in active_wavefront:
         # Get an active cell from the active wavefront
         cell_x = cell_coords[0]
@@ -83,6 +85,8 @@ def dijkstra_step(routing_canvas):
                 if cand_cell.isSink and cand_cell.netGroup is active_source_cell.netGroup:
                     # This is a sink for the source cell
                     sink_is_found = True
+                    sink_cell = cand_cell
+                    sink_cell.isRouted = True
                     break
                 cell_is_viable = not cand_cell.isObstruction and not cand_cell.isCandidate \
                     and not cand_cell.isWire and not cand_cell.isSource and not cand_cell.isSink
@@ -99,6 +103,36 @@ def dijkstra_step(routing_canvas):
                     text_y = (cell_rect_coords[1] + cell_rect_coords[3])/2
                     routing_canvas.create_text(text_x, text_y,
                                                text=str(cand_cell.routingValue), fill='white')
+        if sink_is_found:
+            # Connect sink to source
+            net_is_routed = False
+            search_cell = sink_cell
+            while not net_is_routed:
+                # Backtrace through shortest path from Dijkstra wavefront propagation
+                search_x = search_cell.x
+                search_y = search_cell.y
+                search_coords = [(search_x, search_y+1), (search_x, search_y-1),
+                                 (search_x+1, search_y), (search_x-1, search_y)]
+                for (route_x, route_y) in search_coords:
+                    if 0 <= route_x < array_width and 0 <= route_y < array_height:
+                        route_cell = routing_array[route_x][route_y]
+                        if route_cell.isSource:
+                            # Done
+                            net_is_routed = True
+                            break
+                        if route_cell.isCandidate and route_cell.routingValue == search_cell.routingValue-1:
+                            # Cell is a valid wire location
+                            route_cell.isCandidate = False
+                            route_cell.isWire = True
+                            route_cell.isRouted = True
+                            routing_canvas.itemconfigure(route_cell.id, fill='blue')
+                            # Continue backtrace from this cell
+                            search_cell = route_cell
+
+            # Clear non-wire cells
+
+            # Clear/increment active variables
+
 
     print("Completed a step")
 
@@ -118,9 +152,9 @@ def create_routing_array(routing_file):
     for _ in range(grid_width):
         routing_grid.append([])
     # Populate grid with cells
-    for column in routing_grid:
-        for _ in range(grid_height):
-            column.append(Cell())
+    for cell_x, column in enumerate(routing_grid):
+        for cell_y in range(grid_height):
+            column.append(Cell(x=cell_x, y=cell_y))
 
     # Add cell obstructions
     num_obstructed_cells = int(routing_file.readline())
@@ -144,10 +178,10 @@ def create_routing_array(routing_file):
         # Add sinks
         for idx in range(3, 3+2*(num_pins-1)):
             if idx % 2 == 1:
-                x = int(net_tokens[idx])
-                y = int(net_tokens[idx + 1])
-                (routing_grid[x][y]).isSink = True
-                (routing_grid[x][y]).netGroup = net_num
+                cell_x = int(net_tokens[idx])
+                cell_y = int(net_tokens[idx + 1])
+                (routing_grid[cell_x][cell_y]).isSink = True
+                (routing_grid[cell_x][cell_y]).netGroup = net_num
 
     return routing_grid
 

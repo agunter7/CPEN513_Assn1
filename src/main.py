@@ -2,12 +2,26 @@ from tkinter import *
 
 NET_COLOURS = ["red", "yellow", "grey", "orange", "purple", "pink", "green", "medium purple", "white"]
 
+source_dict = {}  # Keep track of sources to route from to make life easier
+wavefront = None
+routing_array = []
+array_width = 0
+array_height = 0
+active_net_num = None
+active_source_cell = None
+
 
 def main():
+    global routing_array
+    global array_width
+    global array_height
+
     # Read input file
     routing_file = open("../benchmarks/sydney.infile", "r")
 
-    routing_array, array_width, array_height = create_routing_array(routing_file)
+    routing_array = create_routing_array(routing_file)
+    array_width = len(routing_array)
+    array_height = len(routing_array[0])
 
     # Create routing canvas
     root = Tk()
@@ -31,7 +45,66 @@ def main():
             rectangle_coords = (top_left_x, top_left_y, bottom_right_x, bottom_right_y)
             (routing_array[x][y]).id = routing_canvas.create_rectangle(rectangle_coords, fill=rectangle_colour)
 
+    # Event bindings and Tkinter start
+    routing_canvas.bind('<ButtonPress-1>', lambda e: dijkstra_step(routing_canvas))
     root.mainloop()
+
+
+def dijkstra_step(routing_canvas):
+    global active_net_num
+    global wavefront
+    global active_source_cell
+
+    if active_net_num is None:
+        active_net_num = 0  # Start with 0th net
+    source_coords = source_dict[active_net_num]
+    if active_source_cell is None:
+        source_x = source_coords[0]
+        source_y = source_coords[1]
+        active_source_cell = routing_array[source_x][source_y]
+    if wavefront is None:
+        wavefront = [source_coords]  # Start from source cell
+
+    active_wavefront = wavefront.copy()  # Avoid overwrite and loss of data
+    wavefront.clear()  # Will have a new wavefront after Dijkstra step
+
+    for cell_coords in active_wavefront:
+        # Get an active cell from the active wavefront
+        cell_x = cell_coords[0]
+        cell_y = cell_coords[1]
+        active_cell = routing_array[cell_x][cell_y]
+        # Try to propagate one unit in each cardinal direction from the active cell
+        search_coords = [(cell_x, cell_y + 1), (cell_x, cell_y - 1),
+                         (cell_x + 1, cell_y), (cell_x - 1, cell_y)]
+        for (cand_x, cand_y) in search_coords:
+            if 0 <= cand_x < array_width and 0 <= cand_y < array_height:
+                cand_cell = routing_array[cand_x][cand_y]  # Candidate cell for routing
+                # Check if a sink has been found
+                if cand_cell.isSink and cand_cell.netGroup is active_source_cell.netGroup:
+                    # This is a sink for the source cell
+                    sink_is_found = True
+                    break
+                cell_is_viable = not cand_cell.isObstruction and not cand_cell.isCandidate \
+                    and not cand_cell.isWire and not cand_cell.isSource and not cand_cell.isSink
+                if cell_is_viable:
+                    # Note cell as a candidate for the routing path and add it to the wavefront
+                    cand_cell.isCandidate = True
+                    cand_cell.routingValue = active_cell.routingValue + 1
+                    wavefront.append((cand_x, cand_y))
+                    # Edit rect in GUI to show it is in wavefront
+                    routing_canvas.itemconfigure(cand_cell.id, fill='black')
+                    # Place text inside the rect to show its routing value
+                    cell_rect_coords = routing_canvas.coords(cand_cell.id)
+                    text_x = (cell_rect_coords[0] + cell_rect_coords[2])/2
+                    text_y = (cell_rect_coords[1] + cell_rect_coords[3])/2
+                    routing_canvas.create_text(text_x, text_y,
+                                               text=str(cand_cell.routingValue), fill='white')
+
+    print("Completed a step")
+
+
+def dijkstra():
+    print("dijkstra")
 
 
 def create_routing_array(routing_file):
@@ -67,6 +140,7 @@ def create_routing_array(routing_file):
         source_y = int(net_tokens[2])
         (routing_grid[source_x][source_y]).isSource = True
         (routing_grid[source_x][source_y]).netGroup = net_num
+        source_dict[net_num] = (source_x, source_y)
         # Add sinks
         for idx in range(3, 3+2*(num_pins-1)):
             if idx % 2 == 1:
@@ -75,20 +149,32 @@ def create_routing_array(routing_file):
                 (routing_grid[x][y]).isSink = True
                 (routing_grid[x][y]).netGroup = net_num
 
-    return routing_grid, grid_width, grid_height
+    return routing_grid
+
+
+class Net:
+    def __init__(self):
+        self.source = None
+        self.sinks = []
 
 
 class Cell:
-    def __init__(self, obstruction=False, source=False, sink=False, net_group=-1):
+    def __init__(self, x=-1, y=-1, obstruction=False, source=False, sink=False, net_group=-1):
 
         if obstruction and (source or sink):
             print("Error: Bad cell created!")
 
+        self.x = x
+        self.y = y
         self.isObstruction = obstruction
         self.isSource = source
         self.isSink = sink
         self.netGroup = net_group
         self.id = -1
+        self.isRouted = False
+        self.isWire = False
+        self.isCandidate = False  # Is the cell a candidate for the current route?
+        self.routingValue = 0
 
 
 if __name__ == "__main__":

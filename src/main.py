@@ -9,6 +9,8 @@ array_width = 0
 array_height = 0
 active_net_num = None
 active_source_cell = None
+num_nets_to_route = 0
+text_id_list = []
 
 
 def main():
@@ -17,7 +19,7 @@ def main():
     global array_height
 
     # Read input file
-    routing_file = open("../benchmarks/sydney.infile", "r")
+    routing_file = open("../benchmarks/oswald.infile", "r")
 
     routing_array = create_routing_array(routing_file)
     array_width = len(routing_array)
@@ -54,9 +56,14 @@ def dijkstra_step(routing_canvas):
     global active_net_num
     global wavefront
     global active_source_cell
+    global num_nets_to_route
+    global text_id_list
 
     if active_net_num is None:
         active_net_num = 0  # Start with 0th net
+    if active_net_num >= num_nets_to_route:
+        # Circuit is complete
+        return
     source_coords = source_dict[active_net_num]
     if active_source_cell is None:
         source_x = source_coords[0]
@@ -103,8 +110,9 @@ def dijkstra_step(routing_canvas):
                     cell_rect_coords = routing_canvas.coords(cand_cell.id)
                     text_x = (cell_rect_coords[0] + cell_rect_coords[2])/2
                     text_y = (cell_rect_coords[1] + cell_rect_coords[3])/2
-                    routing_canvas.create_text(text_x, text_y,
-                                               text=str(cand_cell.routingValue), fill='white')
+                    text_id = routing_canvas.create_text(text_x, text_y, font=("arial", 10),
+                                                         text=str(cand_cell.routingValue), fill='white')
+                    text_id_list.append(text_id)  # For later text deletion
     if sink_is_found:
         print("Connecting sink")
         # Connect sink to source
@@ -112,27 +120,20 @@ def dijkstra_step(routing_canvas):
         net_colour = NET_COLOURS[sink_cell.netGroup]  # Needed to colour wires
         search_cell = sink_cell
         while not net_is_routed:
-            print("Backtrace iteration")
             # Backtrace through shortest path from Dijkstra wavefront propagation
             search_x = search_cell.x
             search_y = search_cell.y
-            print("Searching from: " + str(search_x), ", " + str(search_y))
             search_coords = [(search_x, search_y+1), (search_x, search_y-1),
                              (search_x+1, search_y), (search_x-1, search_y)]
             for (route_x, route_y) in search_coords:
-                print("Checking: " + str(route_x), ", " + str(route_y))
                 if 0 <= route_x < array_width and 0 <= route_y < array_height:
                     route_cell = routing_array[route_x][route_y]
-                    print("source: " + str(route_cell.isSource))
-                    print("candidate: " + str(route_cell.isCandidate))
-                    print("routingValue: " + str(route_cell.routingValue))
                     if route_cell.isSource:
                         # Done
                         net_is_routed = True
-                        print("Routed a net")
+                        print("Routed net: " + str(active_net_num))
                         break
                     if route_cell.isCandidate and route_cell.routingValue == search_cell.routingValue-1:
-                        print("Attempting to backtrace through: " + str(route_cell.x), ", " + str(route_cell.y))
                         # Cell is a valid wire location
                         route_cell.isCandidate = False
                         route_cell.isWire = True
@@ -151,21 +152,20 @@ def dijkstra_step(routing_canvas):
         wavefront = None
 
 
-
-    print("Completed a step")
-
-
 def cleanup_candidates(routing_canvas):
     global routing_array
+    global text_id_list
 
+    # Change routing candidate cells back to default colour
     for column in routing_array:
-        print(column)
         for cell in column:
-            print(cell)
             if cell.isCandidate:
                 cell.isCandidate = False
                 cell.routingValue = 0
                 routing_canvas.itemconfigure(cell.id, fill='white')
+    # Remove text from all cells (including cells that formed a route)
+    for text_id in text_id_list:
+        routing_canvas.delete(text_id)
 
 
 def dijkstra():
@@ -173,6 +173,8 @@ def dijkstra():
 
 
 def create_routing_array(routing_file):
+    global num_nets_to_route
+
     grid_line = routing_file.readline()
 
     # Create the routing grid
@@ -196,7 +198,7 @@ def create_routing_array(routing_file):
         (routing_grid[obstruction_x][obstruction_y]).isObstruction = True
 
     # Add sources and sinks
-    num_nets = int(routing_file.readline())  # Don't really need to use this aside from input verification
+    num_nets_to_route = int(routing_file.readline())
     for net_num, line in enumerate(routing_file):
         net_tokens = line.split(' ')
         num_pins = int(net_tokens[0])  # Don't really need to use this aside from input verification

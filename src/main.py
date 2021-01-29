@@ -12,7 +12,7 @@ active_net = None
 num_nets_to_route = 0
 text_id_list = []
 done_routing = False
-file_path = "../benchmarks/stanley.infile"
+file_path = "../benchmarks/wavy.infile"
 
 class Net:
     def __init__(self, source=None, sinks=None, num=-1):
@@ -43,6 +43,7 @@ class Cell:
         self.netGroup = net_group
         self.id = -1
         self.isRouted = False
+        self.isOnPath = False
         self.isWire = False
         self.isCandidate = False  # Is the cell a candidate for the current route?
         self.routingValue = 0
@@ -145,42 +146,43 @@ def dijkstra_step(routing_canvas):
     sink_is_found = False
     sink_cell = None
     for cell_coords in active_wavefront:
-        # Get an active cell from the active wavefront
-        cell_x = cell_coords[0]
-        cell_y = cell_coords[1]
-        active_cell = routing_array[cell_x][cell_y]
-        # Try to propagate one unit in each cardinal direction from the active cell
-        search_coords = [(cell_x, cell_y + 1), (cell_x, cell_y - 1),
-                         (cell_x + 1, cell_y), (cell_x - 1, cell_y)]
-        for (cand_x, cand_y) in search_coords:
-            if 0 <= cand_x < array_width and 0 <= cand_y < array_height:
-                cand_cell = routing_array[cand_x][cand_y]  # Candidate cell for routing
-                # Check if a sink has been found
-                if cand_cell.isSink and cand_cell.netGroup is active_net.source.netGroup and \
-                        cand_cell.isRouted is False:
-                    # This is a sink for the source cell
-                    sink_is_found = True
-                    sink_cell = cand_cell
-                    active_net.sinksRemaining -= 1
-                    print("Sinks: " + str(active_net.sinksRemaining))
-                    sink_cell.routingValue = active_cell.routingValue + 1  # Makes backtrace easier if sink has this
-                    break
-                cell_is_viable = not cand_cell.isObstruction and not cand_cell.isCandidate \
-                    and not cand_cell.isWire and not cand_cell.isSource and not cand_cell.isSink
-                if cell_is_viable:
-                    # Note cell as a candidate for the routing path and add it to the wavefront
-                    cand_cell.isCandidate = True
-                    cand_cell.routingValue = active_cell.routingValue + 1
-                    wavefront.append((cand_x, cand_y))
-                    # Edit rect in GUI to show it is in wavefront
-                    routing_canvas.itemconfigure(cand_cell.id, fill='black')
-                    # Place text inside the rect to show its routing value
-                    cell_rect_coords = routing_canvas.coords(cand_cell.id)
-                    text_x = (cell_rect_coords[0] + cell_rect_coords[2])/2
-                    text_y = (cell_rect_coords[1] + cell_rect_coords[3])/2
-                    text_id = routing_canvas.create_text(text_x, text_y, font=("arial", 10),
-                                                         text=str(cand_cell.routingValue), fill='white')
-                    text_id_list.append(text_id)  # For later text deletion
+        if not sink_is_found:
+            # Get an active cell from the active wavefront
+            cell_x = cell_coords[0]
+            cell_y = cell_coords[1]
+            active_cell = routing_array[cell_x][cell_y]
+            # Try to propagate one unit in each cardinal direction from the active cell
+            search_coords = [(cell_x, cell_y + 1), (cell_x, cell_y - 1),
+                             (cell_x + 1, cell_y), (cell_x - 1, cell_y)]
+            for (cand_x, cand_y) in search_coords:
+                if 0 <= cand_x < array_width and 0 <= cand_y < array_height:
+                    cand_cell = routing_array[cand_x][cand_y]  # Candidate cell for routing
+                    # Check if a sink has been found
+                    if cand_cell.isSink and cand_cell.netGroup is active_net.source.netGroup and \
+                            cand_cell.isRouted is False:
+                        # This is a sink for the source cell
+                        sink_is_found = True
+                        sink_cell = cand_cell
+                        active_net.sinksRemaining -= 1
+                        print("Sinks: " + str(active_net.sinksRemaining))
+                        sink_cell.routingValue = active_cell.routingValue + 1  # Makes backtrace easier if sink has this
+                        break
+                    cell_is_viable = not cand_cell.isObstruction and not cand_cell.isCandidate \
+                        and not cand_cell.isWire and not cand_cell.isSource and not cand_cell.isSink
+                    if cell_is_viable:
+                        # Note cell as a candidate for the routing path and add it to the wavefront
+                        cand_cell.isCandidate = True
+                        cand_cell.routingValue = active_cell.routingValue + 1
+                        wavefront.append((cand_x, cand_y))
+                        # Edit rect in GUI to show it is in wavefront
+                        routing_canvas.itemconfigure(cand_cell.id, fill='black')
+                        # Place text inside the rect to show its routing value
+                        cell_rect_coords = routing_canvas.coords(cand_cell.id)
+                        text_x = (cell_rect_coords[0] + cell_rect_coords[2])/2
+                        text_y = (cell_rect_coords[1] + cell_rect_coords[3])/2
+                        text_id = routing_canvas.create_text(text_x, text_y, font=("arial", 10),
+                                                             text=str(cand_cell.routingValue), fill='white')
+                        text_id_list.append(text_id)  # For later text deletion
     if sink_is_found:
         print("Connecting sink")
         # Connect sink to source

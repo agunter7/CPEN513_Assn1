@@ -7,10 +7,11 @@ wavefront = None
 routing_array = []
 array_width = 0
 array_height = 0
-active_net_num = None
-active_source_cell = None
+net_dict = {}
+active_net = None
 num_nets_to_route = 0
 text_id_list = []
+done_routing = False
 
 
 def main():
@@ -19,7 +20,7 @@ def main():
     global array_height
 
     # Read input file
-    routing_file = open("../benchmarks/oswald.infile", "r")
+    routing_file = open("../benchmarks/sydney.infile", "r")
 
     routing_array = create_routing_array(routing_file)
     array_width = len(routing_array)
@@ -49,28 +50,29 @@ def main():
 
     # Event bindings and Tkinter start
     routing_canvas.bind('<ButtonPress-1>', lambda e: dijkstra_step(routing_canvas))
+    routing_canvas.bind('<ButtonPress-3>', lambda e: dijkstra_multistep(routing_canvas, 5))
     root.mainloop()
 
 
+def dijkstra_multistep(routing_canvas, n):
+    for _ in range(n):
+        dijkstra_step(routing_canvas)
+
+
 def dijkstra_step(routing_canvas):
-    global active_net_num
+    global active_net
     global wavefront
-    global active_source_cell
     global num_nets_to_route
     global text_id_list
+    global done_routing
 
-    if active_net_num is None:
-        active_net_num = 0  # Start with 0th net
-    if active_net_num >= num_nets_to_route:
+    if active_net is None:
+        active_net = net_dict[0]  # Start with the 0th net
+    if done_routing:
         # Circuit is complete
         return
-    source_coords = source_dict[active_net_num]
-    if active_source_cell is None:
-        source_x = source_coords[0]
-        source_y = source_coords[1]
-        active_source_cell = routing_array[source_x][source_y]
     if wavefront is None:
-        wavefront = [source_coords]  # Start from source cell
+        wavefront = [active_net.source.get_coords()]  # Start from source cell
 
     active_wavefront = wavefront.copy()  # Avoid overwrite and loss of data
     wavefront.clear()  # Will have a new wavefront after Dijkstra step
@@ -89,11 +91,15 @@ def dijkstra_step(routing_canvas):
             if 0 <= cand_x < array_width and 0 <= cand_y < array_height:
                 cand_cell = routing_array[cand_x][cand_y]  # Candidate cell for routing
                 # Check if a sink has been found
-                if cand_cell.isSink and cand_cell.netGroup is active_source_cell.netGroup:
+                if cand_cell.isSink and cand_cell.netGroup is active_net.source.netGroup and \
+                        cand_cell.isRouted is False:
                     # This is a sink for the source cell
                     sink_is_found = True
                     sink_cell = cand_cell
                     sink_cell.isRouted = True
+                    print("Net " + str(active_net.num) + " sinks " + str(active_net.sinksRemaining))
+                    active_net.sinksRemaining -= 1
+                    print("Net " + str(active_net.num) + " sinks " + str(active_net.sinksRemaining))
                     sink_cell.routingValue = active_cell.routingValue + 1  # Makes backtrace easier if sink has this
                     print("Found sink")
                     break
@@ -118,6 +124,7 @@ def dijkstra_step(routing_canvas):
         # Connect sink to source
         net_is_routed = False
         net_colour = NET_COLOURS[sink_cell.netGroup]  # Needed to colour wires
+        print(net_colour)
         search_cell = sink_cell
         while not net_is_routed:
             # Backtrace through shortest path from Dijkstra wavefront propagation
@@ -128,13 +135,14 @@ def dijkstra_step(routing_canvas):
             for (route_x, route_y) in search_coords:
                 if 0 <= route_x < array_width and 0 <= route_y < array_height:
                     route_cell = routing_array[route_x][route_y]
-                    if route_cell.isSource:
+                    if route_cell.isSource and route_cell.netGroup == active_net.num:
                         # Done
                         net_is_routed = True
-                        print("Routed net: " + str(active_net_num))
+                        print("Routed net: " + str(active_net.num))
                         break
                     if route_cell.isCandidate and route_cell.routingValue == search_cell.routingValue-1:
                         # Cell is a valid wire location
+                        #print("Routing through: " + str(route_cell.x) + ", " + str(route_cell.y))
                         route_cell.isCandidate = False
                         route_cell.isWire = True
                         route_cell.isRouted = True
@@ -147,9 +155,20 @@ def dijkstra_step(routing_canvas):
         cleanup_candidates(routing_canvas)
 
         # Clear/increment active variables
-        active_net_num += 1
-        active_source_cell = None
         wavefront = None
+        print("Remaining: " + str(active_net.sinksRemaining))
+        if active_net.sinksRemaining == 0:
+            if active_net.num+1 in net_dict.keys():
+                # Move to the next net
+                print("NEXT")
+                active_net = net_dict[active_net.num+1]
+            else:
+                # All nets are routed
+                done_routing = True
+        else:
+            # Route the next sink
+
+            pass
 
 
 def cleanup_candidates(routing_canvas):
@@ -197,7 +216,7 @@ def create_routing_array(routing_file):
         obstruction_y = int(obstruction_line.split(' ')[1])
         (routing_grid[obstruction_x][obstruction_y]).isObstruction = True
 
-    # Add sources and sinks
+    # Add sources and sinks (Note that the routing array already has blank Cells)
     num_nets_to_route = int(routing_file.readline())
     for net_num, line in enumerate(routing_file):
         net_tokens = line.split(' ')
@@ -205,24 +224,40 @@ def create_routing_array(routing_file):
         # Add source
         source_x = int(net_tokens[1])
         source_y = int(net_tokens[2])
-        (routing_grid[source_x][source_y]).isSource = True
-        (routing_grid[source_x][source_y]).netGroup = net_num
+        source_cell = routing_grid[source_x][source_y]
+        source_cell.isSource = True
+        source_cell.netGroup = net_num
         source_dict[net_num] = (source_x, source_y)
+        new_net = Net(source=source_cell, num=net_num)
         # Add sinks
         for idx in range(3, 3+2*(num_pins-1)):
             if idx % 2 == 1:
+                # Create sink cell
                 cell_x = int(net_tokens[idx])
                 cell_y = int(net_tokens[idx + 1])
-                (routing_grid[cell_x][cell_y]).isSink = True
-                (routing_grid[cell_x][cell_y]).netGroup = net_num
+                sink_cell = routing_grid[cell_x][cell_y]
+                sink_cell.isSink = True
+                sink_cell.netGroup = net_num
+                # Add sink cell to a net
+                new_net.sinks.append(sink_cell)
+                print("Net " + str(new_net.num) + " sinks " + str(new_net.sinksRemaining))
+                new_net.sinksRemaining += 1
+                print("Net " + str(new_net.num) + " sinks " + str(new_net.sinksRemaining))
+        # Add the new net to the net dictionary
+        net_dict[new_net.num] = new_net
 
     return routing_grid
 
 
 class Net:
-    def __init__(self):
-        self.source = None
-        self.sinks = []
+    def __init__(self, source=None, sinks=None, num=-1):
+        if sinks is None:
+            sinks = []
+        self.source = source
+        self.sinks = sinks
+        self.num = num
+        self.sinksRemaining = len(self.sinks)
+        self.initRouteComplete = False
 
 
 class Cell:
@@ -242,6 +277,8 @@ class Cell:
         self.isWire = False
         self.isCandidate = False  # Is the cell a candidate for the current route?
         self.routingValue = 0
+
+    def get_coords(self): return self.x, self.y
 
 
 if __name__ == "__main__":

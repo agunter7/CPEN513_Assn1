@@ -12,7 +12,7 @@ active_net = None
 num_nets_to_route = 0
 text_id_list = []
 done_routing = False
-file_path = "../benchmarks/wavy.infile"
+file_path = "../benchmarks/stdcell.infile"
 
 class Net:
     def __init__(self, source=None, sinks=None, num=-1):
@@ -140,6 +140,23 @@ def dijkstra_step(routing_canvas):
             # Start from source cell by default
             wavefront = [active_net.source.get_coords()]
 
+    if len(wavefront) == 0:
+        # No more available cells for wavefront propagation in this net
+        # This net cannot be routed
+        # Move on to next net
+        # TODO: For multi-pin nets, maybe try targeting a new sink (i.e. start propagation from a diff point) instead
+        print("Failed to route net " + str(active_net.num) + " with colour " + NET_COLOURS[active_net.num])
+        cleanup_candidates(routing_canvas)
+        wavefront = None
+        if active_net.num + 1 in net_dict.keys():
+            # Move to the next net
+            active_net = net_dict[active_net.num + 1]
+        else:
+            # All nets are routed
+            print("Circuit complete")
+            done_routing = True
+        return
+
     active_wavefront = wavefront.copy()  # Avoid overwrite and loss of data
     wavefront.clear()  # Will have a new wavefront after Dijkstra step
 
@@ -164,7 +181,6 @@ def dijkstra_step(routing_canvas):
                         sink_is_found = True
                         sink_cell = cand_cell
                         active_net.sinksRemaining -= 1
-                        print("Sinks: " + str(active_net.sinksRemaining))
                         sink_cell.routingValue = active_cell.routingValue + 1  # Makes backtrace easier if sink has this
                         break
                     cell_is_viable = not cand_cell.isObstruction and not cand_cell.isCandidate \

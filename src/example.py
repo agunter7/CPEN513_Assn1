@@ -66,7 +66,7 @@ def output():
 
 def keyx(event):
     if int(event.char) == 0:
-        output()
+        print("Zero")
     else:
         cv = event.widget
         xloc = int(event.x / sizex)

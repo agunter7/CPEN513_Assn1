@@ -1,10 +1,6 @@
 from tkinter import *
 from enum import Enum
-
-
-class NetTest(Enum):
-    RED = 0
-    YELLOW = 1
+from queue import PriorityQueue
 
 
 class Algorithm(Enum):
@@ -13,7 +9,9 @@ class Algorithm(Enum):
     A_STAR = 1
 
 
-NET_COLOURS = ["red", "brown", "grey", "orange", "purple", "pink", "green", "medium purple", "white"]
+NET_COLOURS = ["red", "yellow", "grey", "orange", "purple", "pink", "green", "medium purple", "white"]
+MAX_NET_PRIORITY = 3
+MIN_NET_PRIORITY = 0
 
 active_algorithm = Algorithm.NONE
 source_dict = {}  # Keep track of sources to route from to make life easier
@@ -26,13 +24,20 @@ active_net = None
 text_id_list = []
 done_routing = False
 target_sink = None
-file_path = "../benchmarks/stdcell.infile"
+net_order = []
+net_pq = PriorityQueue()
+current_net_order_idx = 0
+all_nets_routed = True  # Assume true, prove false if a net fails to route
+failed_nets = []
+num_rip_ups = 0
+file_path = "../benchmarks/impossible.infile"
 
 
 class Net:
     def __init__(self, source=None, sinks=None, num=-1):
         if sinks is None:
             sinks = []
+        self.priority = MAX_NET_PRIORITY
         self.source = source
         self.sinks = sinks
         self.wireCells = []
@@ -58,7 +63,6 @@ class Cell:
         self.netGroup = net_group
         self.id = -1
         self.isRouted = False
-        self.isOnPath = False
         self.isWire = False
         self.isCandidate = False  # Is the cell a candidate for the current route?
         self.hasPropagated = False  # Has this cell already been used in a wavefront propagation?
@@ -121,6 +125,9 @@ def key_handler(routing_canvas, event):
     elif e_char == 'd':
         if active_algorithm == Algorithm.NONE:
             active_algorithm = Algorithm.DIJKSTRA
+    elif e_char == '0':
+        # TODO: Just route circuit to completion (or best attempt)
+        pass
     elif str.isdigit(e_char):
         algorithm_multistep(routing_canvas, int(e_char))
     else:
@@ -134,13 +141,32 @@ def algorithm_multistep(routing_canvas, n):
     global net_dict
     global wavefront
     global target_sink
+    global current_net_order_idx
+    global all_nets_routed
+    global failed_nets
+    global num_rip_ups
 
     if active_net is None:
-        active_net = net_dict[0]  # Start with the 0th net
+        if len(net_order) == 0:
+            while not net_pq.empty():
+                priority, next_net_num = net_pq.get()
+                net_order.append(next_net_num)
+        active_net = net_dict[net_order[current_net_order_idx]]
     if done_routing:
-        # Circuit is complete
-        return
+        if all_nets_routed:
+            # Successful route
+            print("Already done")
+            return
+        else:
+            # Rip-up
+            print("Rip-up")
+            rip_up(routing_canvas)
+            return
+
     if wavefront is None:
+        if num_rip_ups > 0:
+            print("TRIGGERED")
+
         target_sink, best_start_cell = find_best_routing_pair()
         if active_net.initRouteComplete:
             # Best starting cell has been found via Manhattan Distance to an unrouted sink
@@ -155,14 +181,20 @@ def algorithm_multistep(routing_canvas, n):
         # Move on to next net
         # TODO: For multi-pin nets, maybe try targeting a new sink (i.e. start propagation from a diff point) instead
         print("Failed to route net " + str(active_net.num) + " with colour " + NET_COLOURS[active_net.num])
+        all_nets_routed = False
+        if active_net.priority > MIN_NET_PRIORITY:
+            active_net.priority -= 1
+        failed_nets.append(active_net.num)
         cleanup_candidates(routing_canvas)
         wavefront = None
-        if active_net.num + 1 in net_dict.keys():
+        if current_net_order_idx + 1 < len(net_order):
             # Move to the next net
-            active_net = net_dict[active_net.num + 1]
+            current_net_order_idx += 1
+            active_net = net_dict[net_order[current_net_order_idx]]
         else:
             # All nets are routed
             print("Circuit complete")
+            print("Failed nets: " + str(failed_nets))
             done_routing = True
         return
 
@@ -172,6 +204,70 @@ def algorithm_multistep(routing_canvas, n):
         a_star_multistep(routing_canvas, n)
     else:
         return
+
+
+def rip_up(routing_canvas):
+    global wavefront
+    global active_net
+    global text_id_list
+    global done_routing
+    global target_sink
+    global net_order
+    global current_net_order_idx
+    global all_nets_routed
+    global failed_nets
+    global routing_array
+    global num_rip_ups
+
+    # Restore all global state variables to default values
+    wavefront = None
+    active_net = None
+    done_routing = False
+    target_sink = None
+    net_order = []
+    current_net_order_idx = 0
+    all_nets_routed = True  # Assumed true and proven false
+    failed_nets = []
+    # Remove all wire cells
+    for text_id in text_id_list:
+        routing_canvas.delete(text_id)
+    for column in routing_array:
+        for cell in column:
+            if cell.isWire:
+                routing_canvas.itemconfigure(cell.id, fill='white')
+                cell.netGroup = -1
+                cell.isRouted = False
+                cell.isWire = False
+                cell.isCandidate = False
+                cell.hasPropagated = False
+                cell.dist_from_source = 0
+                cell.routingValue = 0
+                cell.next_cell = []
+                cell.prev_cell = None
+    # Reset all source and sink cells
+    for net in net_dict.values():
+        source = net.source
+        source.isRouted = False
+        source.next_cell = []
+        source.prev_cell = None
+        for sink in net.sinks:
+            sink.isRouted = False
+            sink.hasPropagated = False
+            sink.dist_from_source = 0
+            sink.routingValue = 0
+            sink.next_cell = []
+            sink.prev_cell = None
+    # Reset all nets
+    for net in net_dict.values():
+        net.wireCells = []
+        net.sinksRemaining = len(net.sinks)
+        net.initRouteComplete = False
+
+    # Setup net priority queue for next routing iteration
+    for net in net_dict.values():
+        net_pq.put((net.priority, net.num))
+
+    num_rip_ups += 1
 
 
 def find_best_routing_pair():
@@ -226,6 +322,11 @@ def a_star_step(routing_canvas):
     global wavefront
     global target_sink
     global done_routing
+    global current_net_order_idx
+    global num_rip_ups
+
+    if num_rip_ups > 0:
+        print(wavefront)
 
     if isinstance(wavefront, list):
         active_wavefront = wavefront.copy()  # Avoid overwrite and loss of data
@@ -277,7 +378,11 @@ def a_star_step(routing_canvas):
                         cell_rect_coords = routing_canvas.coords(cand_cell.id)
                         text_x = (cell_rect_coords[0] + cell_rect_coords[2]) / 2
                         text_y = (cell_rect_coords[1] + cell_rect_coords[3]) / 2
-                        text_id = routing_canvas.create_text(text_x, text_y, font=("arial", 10),
+                        if cand_cell.routingValue > 99:
+                            text_size = 7
+                        else:
+                            text_size = 10
+                        text_id = routing_canvas.create_text(text_x, text_y, font=("arial", text_size),
                                                              text=str(cand_cell.routingValue), fill='white')
                         text_id_list.append(text_id)  # For later text deletion
 
@@ -327,7 +432,6 @@ def a_star_step(routing_canvas):
                 pass
             else:
                 print("ERROR: Bad backtrace occurred!")
-                pass
             backtrace_cell = backtrace_cell.prev_cell
 
         # Clear non-wire cells
@@ -336,22 +440,26 @@ def a_star_step(routing_canvas):
         # Clear/increment active variables
         wavefront = None
         if active_net.sinksRemaining < 1:
-            if active_net.num + 1 in net_dict.keys():
+            if current_net_order_idx + 1 < len(net_order):
                 # Move to the next net
-                active_net = net_dict[active_net.num + 1]
+                current_net_order_idx += 1
+                active_net = net_dict[net_order[current_net_order_idx]]
             else:
                 # All nets are routed
                 print("Circuit complete")
+                print("Failed nets: " + str(failed_nets))
                 done_routing = True
         else:
             # Route the next sink
             active_net.initRouteComplete = True
+
 
 def dijkstra_step(routing_canvas):
     global active_net
     global wavefront
     global text_id_list
     global done_routing
+    global current_net_order_idx
 
     active_wavefront = []
     if isinstance(wavefront, list):
@@ -396,7 +504,11 @@ def dijkstra_step(routing_canvas):
                         cell_rect_coords = routing_canvas.coords(cand_cell.id)
                         text_x = (cell_rect_coords[0] + cell_rect_coords[2])/2
                         text_y = (cell_rect_coords[1] + cell_rect_coords[3])/2
-                        text_id = routing_canvas.create_text(text_x, text_y, font=("arial", 10),
+                        if cand_cell.routingValue > 99:
+                            text_size = 7
+                        else:
+                            text_size = 10
+                        text_id = routing_canvas.create_text(text_x, text_y, font=("arial", text_size),
                                                              text=str(cand_cell.routingValue), fill='white')
                         text_id_list.append(text_id)  # For later text deletion
     if sink_is_found:
@@ -443,12 +555,14 @@ def dijkstra_step(routing_canvas):
         # Clear/increment active variables
         wavefront = None
         if active_net.sinksRemaining < 1:
-            if active_net.num+1 in net_dict.keys():
+            if current_net_order_idx + 1 < len(net_order):
                 # Move to the next net
-                active_net = net_dict[active_net.num+1]
+                current_net_order_idx += 1
+                active_net = net_dict[net_order[current_net_order_idx]]
             else:
                 # All nets are routed
                 print("Circuit complete")
+                print("Failed nets: " + str(failed_nets))
                 done_routing = True
         else:
             # Route the next sink
@@ -478,6 +592,9 @@ def dijkstra():
 
 
 def create_routing_array(routing_file):
+    global net_order
+    global net_pq
+
     grid_line = routing_file.readline()
     # Create the routing grid
     grid_width = int(grid_line.split(' ')[0])
@@ -526,6 +643,9 @@ def create_routing_array(routing_file):
                 new_net.sinksRemaining += 1
         # Add the new net to the net dictionary
         net_dict[new_net.num] = new_net
+        # Place net numbers in priority queue (priority determines routing order)
+        # Use net nums instead of nets themselves because net nums can be tie-broken when priority is equal
+        net_pq.put((new_net.priority, new_net.num))
 
     return routing_grid
 

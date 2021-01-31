@@ -31,13 +31,19 @@ current_net_order_idx = 0
 all_nets_routed = True  # Assume true, prove false if a net fails to route
 failed_nets = []
 net_priorities_changed = False  # Did the priority of any net change since the last rip-up?
-file_path = "../benchmarks/impossible.infile"
+best_num_segments_routed = 0
+num_segments_routed = 0
+best_priority_set = []
+final_route_initiated = False
+circuit_is_hard = False
+file_path = "../benchmarks/misty.infile"
 
 
 class Net:
     def __init__(self, source=None, sinks=None, num=-1):
         if sinks is None:
             sinks = []
+        self.best_priority = 0
         self.priority = MAX_NET_PRIORITY
         self.source = source
         self.sinks = sinks
@@ -127,12 +133,18 @@ def key_handler(routing_canvas, event):
         if active_algorithm == Algorithm.NONE:
             active_algorithm = Algorithm.DIJKSTRA
     elif e_char == '0':
-        # TODO: Just route circuit to completion (or best attempt)
-        pass
+        algorithm_to_completion(routing_canvas)
     elif str.isdigit(e_char):
         algorithm_multistep(routing_canvas, int(e_char))
     else:
         pass
+
+
+def algorithm_to_completion(routing_canvas):
+    global done_circuit
+
+    while not done_circuit:
+        algorithm_multistep(routing_canvas, 1)
 
 
 def algorithm_multistep(routing_canvas, n):
@@ -147,6 +159,10 @@ def algorithm_multistep(routing_canvas, n):
     global failed_nets
     global net_priorities_changed
     global done_circuit
+    global final_route_initiated
+
+    if done_circuit:
+        return
 
     if active_net is None:
         if len(net_order) == 0:
@@ -155,9 +171,13 @@ def algorithm_multistep(routing_canvas, n):
                 net_order.append(next_net_num)
         active_net = net_dict[net_order[current_net_order_idx]]
     if done_routing_attempt:
+        if final_route_initiated:
+            print("Circuit could not be fully routed. Routed " + str(num_segments_routed) + " segments.")
+            done_circuit = True
+            return
         if all_nets_routed:
             # Successful route
-            print("Circuit complete")
+            print("Circuit routed successfully.")
             done_circuit = True
             return
         else:
@@ -170,7 +190,10 @@ def algorithm_multistep(routing_canvas, n):
                 rip_up(routing_canvas)
                 net_priorities_changed = False
             else:
-                done_circuit = True
+                # Perform a final route with the best-performing net priorities
+                print("Final rip-up")
+                rip_up(routing_canvas)
+                final_route_initiated = True
             return
 
     if wavefront is None:
@@ -225,8 +248,23 @@ def rip_up(routing_canvas):
     global all_nets_routed
     global failed_nets
     global routing_array
+    global num_segments_routed
+    global best_num_segments_routed
+    global best_priority_set
+    global circuit_is_hard
 
-    # Restore all global state variables to default values
+    circuit_is_hard = True  # Circuit failed to route and is therefore deemed "hard"
+
+    # Check if the circuit being ripped up is the best routing attempt thus far
+    if num_segments_routed > best_num_segments_routed:
+        best_num_segments_routed = num_segments_routed
+        # Save the net priorities that lead to this route
+        del best_priority_set[:]
+        for net in net_dict.values():
+            best_priority_set.append((net.num, net.priority))
+
+    # Restore the necessary global state variables to default values
+    num_segments_routed = 0
     wavefront = None
     active_net = None
     done_routing_attempt = False
@@ -270,6 +308,8 @@ def rip_up(routing_canvas):
         net.sinksRemaining = len(net.sinks)
         net.initRouteComplete = False
 
+
+
     # Setup net priority queue for next routing iteration
     for net in net_dict.values():
         net_pq.put((net.priority, net.num))
@@ -283,6 +323,7 @@ def find_best_routing_pair():
 
     # Start wavefront from the routed point that is closest to the next net
     shortest_dist = float("inf")
+    greatest_freedom = 0
     best_start_cell = None
     best_sink = None
     # Separate sinks into routed and unrouted
@@ -312,6 +353,11 @@ def find_best_routing_pair():
     return best_sink, best_start_cell
 
 
+def get_cell_freedom(cell: Cell) -> int:
+    cell_x = cell.x
+    cell_y = cell.y
+    
+
 def dijkstra_multistep(routing_canvas, n):
     for _ in range(n):
         dijkstra_step(routing_canvas)
@@ -328,6 +374,7 @@ def a_star_step(routing_canvas):
     global target_sink
     global done_routing_attempt
     global current_net_order_idx
+    global num_segments_routed
 
     if isinstance(wavefront, list):
         active_wavefront = wavefront.copy()  # Avoid overwrite and loss of data
@@ -435,6 +482,9 @@ def a_star_step(routing_canvas):
                 print("ERROR: Bad backtrace occurred!")
             backtrace_cell = backtrace_cell.prev_cell
 
+        # Increment counter for number of routed segments in current circuit routing attempt
+        num_segments_routed += 1
+
         # Clear non-wire cells
         cleanup_candidates(routing_canvas)
 
@@ -461,6 +511,7 @@ def dijkstra_step(routing_canvas):
     global text_id_list
     global done_routing_attempt
     global current_net_order_idx
+    global num_segments_routed
 
     active_wavefront = []
     if isinstance(wavefront, list):
@@ -544,6 +595,9 @@ def dijkstra_step(routing_canvas):
                         # Continue backtrace from this cell
                         search_cell = backtrace_cell
                         break
+
+        # Increment counter for number of routed segments in current circuit routing attempt
+        num_segments_routed += 1
 
         # Mark routed cells as such
         for cell in routing_path:

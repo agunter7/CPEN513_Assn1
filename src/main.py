@@ -13,7 +13,7 @@ class Algorithm(Enum):
     A_STAR = 1
 
 
-NET_COLOURS = ["red", "yellow", "grey", "orange", "purple", "pink", "green", "medium purple", "white"]
+NET_COLOURS = ["red", "brown", "grey", "orange", "purple", "pink", "green", "medium purple", "white"]
 
 active_algorithm = Algorithm.NONE
 source_dict = {}  # Keep track of sources to route from to make life easier
@@ -26,7 +26,7 @@ active_net = None
 text_id_list = []
 done_routing = False
 target_sink = None
-file_path = "../benchmarks/impossible.infile"
+file_path = "../benchmarks/stdcell.infile"
 
 
 class Net:

@@ -36,7 +36,7 @@ num_segments_routed = 0
 best_priority_set = []
 final_route_initiated = False
 circuit_is_hard = False
-file_path = "../benchmarks/misty.infile"
+file_path = "../benchmarks/stdcell.infile"
 
 
 class Net:
@@ -317,46 +317,97 @@ def rip_up(routing_canvas):
 
 def find_best_routing_pair():
     global active_net
+    global circuit_is_hard
 
     if not isinstance(active_net, Net):
         return
 
+    print("Circuit is hard (best pair):" + str(circuit_is_hard))
+
     # Start wavefront from the routed point that is closest to the next net
     shortest_dist = float("inf")
-    greatest_freedom = 0
     best_start_cell = None
     best_sink = None
     # Separate sinks into routed and unrouted
     unrouted_sinks = [unrouted_sink for unrouted_sink in active_net.sinks if not unrouted_sink.isRouted]
     routed_sinks = [routed_sink for routed_sink in active_net.sinks if routed_sink.isRouted]
-    for unrouted_sink in unrouted_sinks:
-        if not unrouted_sink.isRouted:
-            # Check source cell and routed sinks first
-            dist = manhattan_cell(unrouted_sink, active_net.source)
-            if dist < shortest_dist:
-                shortest_dist = dist
-                best_start_cell = active_net.source
-                best_sink = unrouted_sink
-            for routed_sink in routed_sinks:
-                dist = manhattan_cell(unrouted_sink, routed_sink)
+    if circuit_is_hard:
+        # Consider manhattan distance and cell freedom
+        for unrouted_sink in unrouted_sinks:
+            if not unrouted_sink.isRouted:
+                # Check source cell and routed sinks first
+                greatest_freedom = get_cell_freedom(active_net.source)  # This is the greatest freedom by default
+                print("Source freedom: " + str(greatest_freedom))
+                dist = manhattan_cell(unrouted_sink, active_net.source)
                 if dist < shortest_dist:
                     shortest_dist = dist
-                    best_start_cell = routed_sink
+                    best_start_cell = active_net.source
                     best_sink = unrouted_sink
-            # Check wire cells
-            for wire_cell in active_net.wireCells:
-                dist = manhattan_cell(unrouted_sink, wire_cell)
+                for routed_sink in routed_sinks:
+                    routed_sink_freedom = get_cell_freedom(routed_sink)
+                    print("Routed sink freedom: " + str(routed_sink_freedom))
+                    if routed_sink_freedom >= greatest_freedom:
+                        greatest_freedom = routed_sink_freedom
+                        dist = manhattan_cell(unrouted_sink, routed_sink)
+                        if dist < shortest_dist:
+                            shortest_dist = dist
+                            best_start_cell = routed_sink
+                            best_sink = unrouted_sink
+                # Check wire cells
+                for wire_cell in active_net.wireCells:
+                    wire_cell_freedom = get_cell_freedom(wire_cell)
+                    print("Wire cell freedom: " + str(wire_cell_freedom))
+                    if wire_cell_freedom >= greatest_freedom:
+                        greatest_freedom = wire_cell_freedom
+                        dist = manhattan_cell(unrouted_sink, wire_cell)
+                        if dist < shortest_dist:
+                            shortest_dist = dist
+                            best_start_cell = wire_cell
+                            best_sink = unrouted_sink
+        print("Best start cell: " + str(best_start_cell.x) + ", " + str(best_start_cell.y))
+    else:
+        # Consider only manhattan distance
+        for unrouted_sink in unrouted_sinks:
+            if not unrouted_sink.isRouted:
+                # Check source cell and routed sinks first
+                dist = manhattan_cell(unrouted_sink, active_net.source)
                 if dist < shortest_dist:
                     shortest_dist = dist
-                    best_start_cell = wire_cell
+                    best_start_cell = active_net.source
                     best_sink = unrouted_sink
+                for routed_sink in routed_sinks:
+                    dist = manhattan_cell(unrouted_sink, routed_sink)
+                    if dist < shortest_dist:
+                        shortest_dist = dist
+                        best_start_cell = routed_sink
+                        best_sink = unrouted_sink
+                # Check wire cells
+                for wire_cell in active_net.wireCells:
+                    dist = manhattan_cell(unrouted_sink, wire_cell)
+                    if dist < shortest_dist:
+                        shortest_dist = dist
+                        best_start_cell = wire_cell
+                        best_sink = unrouted_sink
+        pass
+
     return best_sink, best_start_cell
 
 
 def get_cell_freedom(cell: Cell) -> int:
     cell_x = cell.x
     cell_y = cell.y
-    
+    search_coords = [(cell_x, cell_y + 1), (cell_x, cell_y - 1),
+                     (cell_x + 1, cell_y), (cell_x - 1, cell_y)]
+
+    freedom = 0
+    for (x, y) in search_coords:
+        neighbour = routing_array[x][y]
+        if not (neighbour.isObstruction or neighbour.isSource or neighbour.isSink or neighbour.isRouted
+                or neighbour.isWire or neighbour.isCandidate):
+            freedom += 1
+    return freedom
+
+
 
 def dijkstra_multistep(routing_canvas, n):
     for _ in range(n):

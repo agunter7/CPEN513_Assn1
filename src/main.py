@@ -95,6 +95,10 @@ class Net:
 
 
 def main():
+    """
+    Top-level main function
+    :return: void
+    """
     global routing_array
     global array_width
     global array_height

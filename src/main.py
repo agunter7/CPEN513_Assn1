@@ -169,6 +169,10 @@ def algorithm_to_completion(routing_canvas):
     :return: void
     """
     global done_circuit
+    global active_algorithm
+
+    if active_algorithm is not Algorithm.A_STAR and active_algorithm is not Algorithm.DIJKSTRA:
+        return
 
     while not done_circuit:
         algorithm_multistep(routing_canvas, 1)
@@ -194,7 +198,7 @@ def algorithm_multistep(routing_canvas, n):
     global done_circuit
     global final_route_initiated
 
-    if done_circuit or active_algorithm is None:
+    if done_circuit or (active_algorithm is not Algorithm.A_STAR and active_algorithm is not Algorithm.DIJKSTRA):
         return
 
     if active_net is None and wavefront is None:

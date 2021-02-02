@@ -17,7 +17,7 @@ class Algorithm(Enum):
 
 
 # Constants
-FILE_PATH = "../benchmarks/stdcell.infile"  # Path to the file with info about the circuit to route
+FILE_PATH = "../benchmarks/test.infile"  # Path to the file with info about the circuit to route
 NET_COLOURS = ["red", "yellow", "grey", "orange", "purple", "pink", "green", "medium purple", "white"]
 MAX_NET_PRIORITY = 2
 MIN_NET_PRIORITY = 0
@@ -34,6 +34,7 @@ text_id_list = []  # A list of Tkinter IDs to on-screen text
 net_order = []  # Holds to order for the current routing attempt
 failed_nets = []  # List of nets that failed to fully route in the current attempt
 best_priority_set = []  # Tracks the net priorities from the net ordering that yields the best (failed) circuit outcome
+starting_priority_set = []  # The net priorities at the start of the current routing attempt
 array_width = 0  # Width of routing array
 array_height = 0  # Height of routing array
 current_net_order_idx = 0  # Index for the current net in net_order to route
@@ -193,6 +194,13 @@ def algorithm_multistep(routing_canvas, n):
     if done_circuit:
         return
 
+    if active_net is None and wavefront is None:
+        # This is the start of a routing attempt
+        # Record the current net priorities
+        del starting_priority_set[:]
+        for net in net_dict.values():
+            starting_priority_set.append((net.num, net.priority))
+
     # Set a net to route if none already set
     if active_net is None:
         if len(net_order) == 0:
@@ -226,8 +234,13 @@ def algorithm_multistep(routing_canvas, n):
             else:
                 # Perform a final route with the best-performing net priorities
                 print("Final rip-up")
+                # Overwrite current net priorities with the best known values
+                for (net_num, best_priority) in best_priority_set:
+                    net = net_dict[net_num]
+                    net.priority = best_priority
                 rip_up(routing_canvas)
                 final_route_initiated = True
+
             return
 
     # Set wavefront if none is set
@@ -303,8 +316,8 @@ def rip_up(routing_canvas):
         best_num_segments_routed = num_segments_routed
         # Save the net priorities that lead to this route
         del best_priority_set[:]
-        for net in net_dict.values():
-            best_priority_set.append((net.num, net.priority))
+        for (net_num, priority) in starting_priority_set:
+            best_priority_set.append((net_num, priority))
 
     # Restore the necessary global state variables to default values
     num_segments_routed = 0
@@ -440,6 +453,8 @@ def get_cell_freedom(cell: Cell) -> int:
     :param cell: Cell
     :return: int - freedom of the input cell
     """
+    global array_width
+    global array_height
     cell_x = cell.x
     cell_y = cell.y
     search_coords = [(cell_x, cell_y + 1), (cell_x, cell_y - 1),
@@ -447,10 +462,11 @@ def get_cell_freedom(cell: Cell) -> int:
 
     freedom = 0
     for (x, y) in search_coords:
-        neighbour = routing_array[x][y]
-        if not (neighbour.isObstruction or neighbour.isSource or neighbour.isSink or neighbour.isRouted
-                or neighbour.isWire or neighbour.isCandidate):
-            freedom += 1
+        if 0 <= x < array_width and 0 <= y < array_height:
+            neighbour = routing_array[x][y]
+            if not (neighbour.isObstruction or neighbour.isSource or neighbour.isSink or neighbour.isRouted
+                    or neighbour.isWire or neighbour.isCandidate):
+                freedom += 1
     return freedom
 
 

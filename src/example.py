@@ -33,7 +33,7 @@ def output():
     f.write(str(len(blocks)) + "\n")
     for el in blocks:
         print(el[0], el[1])
-        f.write(str(el[0]) + " " + str(el[1]) + "\n")
+        f.write(str(int(el[0])) + " " + str(int(el[1])) + "\n")
 
     wires = []
     for j in range(1, 9):
@@ -54,7 +54,7 @@ def output():
             outwire.append(i[0])
             outwire.append(i[1])
         for i in outwire:
-            f.write(str(i) + " ")
+            f.write(str(int(i)) + " ")
             print(i, end=' ')
         print()
         f.write("\n")
@@ -66,7 +66,7 @@ def output():
 
 def keyx(event):
     if int(event.char) == 0:
-        print("Zero")
+        output()
     else:
         cv = event.widget
         xloc = int(event.x / sizex)

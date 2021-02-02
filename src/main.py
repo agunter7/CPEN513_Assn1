@@ -5,6 +5,7 @@ Utilizes a simple rip-up and re-route scheme.
 Uses Tkinter for GUI.
 """
 
+import os
 from tkinter import *
 from enum import Enum
 from queue import PriorityQueue
@@ -100,7 +101,9 @@ def main():
     global FILE_PATH
 
     # Read input file
-    routing_file = open(FILE_PATH, "r")
+    script_path = os.path.dirname(__file__)
+    true_path = os.path.join(script_path, FILE_PATH)
+    routing_file = open(true_path, "r")
 
     # Setup the routing grid/array
     routing_array = create_routing_array(routing_file)

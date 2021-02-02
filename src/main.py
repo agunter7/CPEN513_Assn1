@@ -194,7 +194,7 @@ def algorithm_multistep(routing_canvas, n):
     global done_circuit
     global final_route_initiated
 
-    if done_circuit:
+    if done_circuit or active_algorithm is None:
         return
 
     if active_net is None and wavefront is None:

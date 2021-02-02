@@ -151,9 +151,11 @@ def key_handler(routing_canvas, event):
     if e_char == 'a':
         if active_algorithm == Algorithm.NONE:
             active_algorithm = Algorithm.A_STAR
+            print("Selected A*")
     elif e_char == 'd':
         if active_algorithm == Algorithm.NONE:
             active_algorithm = Algorithm.DIJKSTRA
+            print("Selected Dijkstra")
     elif e_char == '0':
         algorithm_to_completion(routing_canvas)
     elif str.isdigit(e_char):
